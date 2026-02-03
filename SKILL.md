@@ -226,7 +226,7 @@ git checkout 5088921
 npm install
 pear run . <store-name>
 ```
-MSB uses the **npm** `trac-wallet@0.0.43-msb-r2.8` package for wallet/keypair handling.
+MSB uses `trac-wallet` for wallet/keypair handling. Ensure it resolves to **`trac-wallet@1.0.1`**. If it does not, add an override and reinstall inside the MSB repo (same pattern as above).
 
 ### Git-pinned dependencies require install
 When using Git-pinned deps (trac-peer + main_settlement_bus), make sure you run `npm install` inside each repo before running anything with Pear.
@@ -268,4 +268,4 @@ Use these repos for deeper troubleshooting or protocol understanding:
 - `trac-peer` (commit `d108f52`): https://github.com/Trac-Systems/trac-peer
 - `main_settlement_bus` (commit `5088921`): https://github.com/Trac-Systems/main_settlement_bus
 - `trac-crypto-api` (commit `b3c781d`): https://github.com/Trac-Systems/trac-crypto-api
-- `trac-wallet` (npm `0.0.43-msb-r2.8`): https://www.npmjs.com/package/trac-wallet
+- `trac-wallet` (npm `1.0.1`): https://www.npmjs.com/package/trac-wallet
