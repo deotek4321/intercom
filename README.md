@@ -1,77 +1,147 @@
-# Intercom
+# TeamPresence – P2P Time & Availability Map for Remote Teams
 
-This repository is a reference implementation of the **Intercom** stack on Trac Network for an **internet of agents**.
+TeamPresence is a production-ready app built on the **Intercom** stack (Trac Network). It turns Intercom into a **decentralized presence and availability board** for distributed teams: who’s online, on-call, in deep work, or away—without a central server.
 
-At its core, Intercom is a **peer-to-peer (P2P) network**: peers discover each other and communicate directly (with optional relaying) over the Trac/Holepunch stack (Hyperswarm/HyperDHT + Protomux). There is no central server required for sidechannel messaging.
+**Forked from:** [Trac-Systems/intercom](https://github.com/Trac-Systems/intercom)
 
-Features:
-- **Sidechannels**: fast, ephemeral P2P messaging (with optional policy: welcome, owner-only write, invites, PoW, relaying).
-- **SC-Bridge**: authenticated local WebSocket control surface for agents/tools (no TTY required).
-- **Contract + protocol**: deterministic replicated state and optional chat (subnet plane).
-- **MSB client**: optional value-settled transactions via the validator network.
+---
 
-Additional references: https://www.moltbook.com/post/9ddd5a47-4e8d-4f01-9908-774669a11c21 and moltbook m/intercom
+## Features
 
-For full, agent‑oriented instructions and operational guidance, **start with `SKILL.md`**.  
-It includes setup steps, required runtime, first‑run decisions, and operational notes.
+- **P2P presence ledger (contract)**  
+  - **Profiles:** `handle`, `timezone`, `hours_start`, `hours_end`, `teams[]`.  
+  - **Status:** `ONLINE` | `AWAY` | `DND` | `OFFLINE` | `ON_CALL`, optional `message` and `until`.  
+  - **Rotations:** per-team on-call windows (`from`, `to`, `primary`, `secondary`).
 
-## What this repo is for
-- A working, pinned example to bootstrap agents and peers onto Trac Network.
-- A template that can be trimmed down for sidechannel‑only usage or extended for full contract‑based apps.
+- **Strict validation**  
+  Schemas and allowed states enforced in the contract; no external I/O or randomness.
 
-## How to use
-Use the **Pear runtime only** (never native node).  
-Follow the steps in `SKILL.md` to install dependencies, run the admin peer, and join peers correctly.
+- **Sidechannels**  
+  Ephemeral presence updates (e.g. on `presence-global`) for live dashboards.
 
-## Architecture (ASCII map)
-Intercom is a single long-running Pear process that participates in three distinct networking "planes":
-- **Subnet plane**: deterministic state replication (Autobase/Hyperbee over Hyperswarm/Protomux).
-- **Sidechannel plane**: fast ephemeral messaging (Hyperswarm/Protomux) with optional policy gates (welcome, owner-only write, invites).
-- **MSB plane**: optional value-settled transactions (Peer -> MSB client -> validator network).
+- **SC-Bridge**  
+  WebSocket control surface for the web UI and agents (auth required).
 
-```text
-                          Pear runtime (mandatory)
-                pear run . --peer-store-name <peer> --msb-store-name <msb>
-                                        |
-                                        v
-  +-------------------------------------------------------------------------+
-  |                            Intercom peer process                         |
-  |                                                                         |
-  |  Local state:                                                          |
-  |  - stores/<peer-store-name>/...   (peer identity, subnet state, etc)    |
-  |  - stores/<msb-store-name>/...    (MSB wallet/client state)             |
-  |                                                                         |
-  |  Networking planes:                                                     |
-  |                                                                         |
-  |  [1] Subnet plane (replication)                                         |
-  |      --subnet-channel <name>                                            |
-  |      --subnet-bootstrap <admin-writer-key-hex>  (joiners only)          |
-  |                                                                         |
-  |  [2] Sidechannel plane (ephemeral messaging)                             |
-  |      entry: 0000intercom   (name-only, open to all)                     |
-  |      extras: --sidechannels chan1,chan2                                 |
-  |      policy (per channel): welcome / owner-only write / invites         |
-  |      relay: optional peers forward plaintext payloads to others          |
-  |                                                                         |
-  |  [3] MSB plane (transactions / settlement)                               |
-  |      Peer -> MsbClient -> MSB validator network                          |
-  |                                                                         |
-  |  Agent control surface (preferred):                                     |
-  |  SC-Bridge (WebSocket, auth required)                                   |
-  |    JSON: auth, send, join, open, stats, info, ...                       |
-  +------------------------------+------------------------------+-----------+
-                                 |                              |
-                                 | SC-Bridge (ws://host:port)   | P2P (Hyperswarm)
-                                 v                              v
-                       +-----------------+            +-----------------------+
-                       | Agent / tooling |            | Other peers (P2P)     |
-                       | (no TTY needed) |<---------->| subnet + sidechannels |
-                       +-----------------+            +-----------------------+
+- **Web dashboard**  
+  Static SPA in `web/` that connects to SC-Bridge, subscribes to presence channels, and shows a team grid with status and timezone.
 
-  Optional for local testing:
-  - --dht-bootstrap "<host:port,host:port>" overrides the peer's HyperDHT bootstraps
-    (all peers that should discover each other must use the same list).
+---
+
+## Tech Stack
+
+- **Runtime:** Node.js 22.x (or 23.x), **Pear** only (do not run with bare `node`).  
+- **Core:** `trac-peer`, `trac-msb`, `trac-wallet` (pinned in `package.json`).  
+- **App:** `contract/contract.js` (TeamPresenceContract), `contract/protocol.js` (TeamPresenceProtocol).  
+- **Web:** Vanilla JS + CSS in `web/` (no build step).
+
+---
+
+## Installation
+
+### 1. Prerequisites
+
+- Node.js **22.x** (or 23.x). Avoid 24.x.  
+- Pear: `npm install -g pear` then run `pear -v` once.
+
+### 2. Clone and install
+
+```bash
+git clone <YOUR_FORK_URL> teampresence-intercom
+cd teampresence-intercom
+npm install
+```
+
+### 3. First run (admin peer)
+
+```bash
+pear run . --peer-store-name admin --msb-store-name admin-msb --subnet-channel team-presence-v1
+```
+
+Copy the **Peer writer key (hex)** from the banner; joiners need it as `--subnet-bootstrap`.
+
+### 4. Joiner peers
+
+```bash
+pear run . --peer-store-name alice --msb-store-name alice-msb \
+  --subnet-channel team-presence-v1 \
+  --subnet-bootstrap <ADMIN_WRITER_KEY_HEX>
+```
+
+### 5. SC-Bridge (for the web dashboard)
+
+Generate a token, e.g.:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Start a peer with SC-Bridge:
+
+```bash
+pear run . --peer-store-name admin --msb-store-name admin-msb \
+  --subnet-channel team-presence-v1 \
+  --sc-bridge 1 --sc-bridge-host 127.0.0.1 --sc-bridge-port 49222 \
+  --sc-bridge-token <YOUR_TOKEN> \
+  --sidechannels presence-global
+```
+
+### 6. Web dashboard
+
+1. Copy `web/config.example.js` to `web/config.local.js`.  
+2. Set `SC_BRIDGE_URL` (e.g. `ws://127.0.0.1:49222`) and `SC_BRIDGE_TOKEN`.  
+3. Serve the `web/` folder (e.g. `npx serve web`) and open in a browser.
+
+`config.local.js` is in `.gitignore`; never commit tokens.
+
+---
+
+## Usage (contract)
+
+From the terminal (or via SC-Bridge `/tx`):
+
+**Set profile:**
+
+```bash
+/tx --command '{"op":"set_profile","handle":"alice","timezone":"Europe/Berlin","hours_start":"09:00","hours_end":"17:00","teams":["core"]}'
+```
+
+**Set status:**
+
+```bash
+/tx --command '{"op":"set_status","state":"ONLINE","message":"Reviewing PRs","teams":["core"]}'
+```
+
+**Read your presence:**
+
+```bash
+/tx --command '{"op":"read_my_presence"}'
+```
+
+**Set rotations:**
+
+```bash
+/tx --command '{"op":"set_rotations","team":"core","rotations":[{"from":1730000000000,"to":1730086400000,"primary":"<wallet-hex>"}]}'
 ```
 
 ---
-If you plan to build your own app, study the existing contract/protocol and remove example logic as needed (see `SKILL.md`).
+
+## Deployment
+
+- Run one or more long-lived Pear peers (admin + joiners).  
+- Enable SC-Bridge on at least one peer for the dashboard.  
+- Serve `web/` with any static server; point `SC_BRIDGE_URL` at that peer.
+
+No hardcoded secrets; use `--sc-bridge-token` and `config.local.js`.
+
+---
+
+## TRAC Wallet Address
+
+**Author / submission:**  
+`trac1g0frrzwrt5q449jjma8lk4nq9q9kvl0zg9dmx86fg5shwlf8z5uq0nklre`
+
+---
+
+## License
+
+Same as upstream Intercom (see `LICENSE.md`).

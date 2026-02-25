@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TeamPresence – P2P Availability Map</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="tp-header">
+    <div class="tp-header-left">
+      <h1>TeamPresence</h1>
+      <p class="tp-subtitle">P2P time &amp; availability map on Trac Intercom</p>
+    </div>
+    <div class="tp-header-right">
+      <select id="teamFilter" class="tp-select">
+        <option value="">All teams</option>
+      </select>
+      <span id="connectionStatus" class="tp-conn tp-conn--disconnected">Disconnected</span>
+    </div>
+  </header>
+
+  <main class="tp-main">
+    <section class="tp-panel">
+      <h2>Peers</h2>
+      <div id="peerGrid" class="tp-grid"></div>
+    </section>
+    <aside class="tp-panel tp-panel--side">
+      <h2>Events</h2>
+      <div id="eventLog" class="tp-log"></div>
+    </aside>
+  </main>
+
+  <footer class="tp-footer">
+    <span>Powered by Trac Intercom · Local-first · No central server</span>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

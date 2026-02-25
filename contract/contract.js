@@ -1,240 +1,238 @@
-import {Contract} from 'trac-peer'
+import { Contract } from 'trac-peer';
 
-class SampleContract extends Contract {
-    /**
-     * Extending from Contract inherits its capabilities and allows you to define your own contract.
-     * The contract supports the corresponding protocol. Both files come in pairs.
-     *
-     * Instances of this class run in contract context. The constructor is only called once on Peer
-     * instantiation.
-     *
-     * Please avoid using the following in your contract functions:
-     *
-     * No try-catch
-     * No throws
-     * No random values
-     * No http / api calls
-     * No super complex, costly calculations
-     * No massive storage of data.
-     * Never, ever modify "this.op" or "this.value", only read from it and use safeClone to modify.
-     * ... basically nothing that can lead to inconsistencies akin to Blockchain smart contracts.
-     *
-     * Running a contract on Trac gives you a lot of freedom, but it comes with additional responsibility.
-     * Make sure to benchmark your contract performance before release.
-     *
-     * If you need to inject data from "outside", you can utilize the Feature class and create your own
-     * oracles. Instances of Feature can be injected into the main Peer instance and enrich your contract.
-     *
-     * In the current version (Release 1), there is no inter-contract communication yet.
-     * This means it's not suitable yet for token standards.
-     * However, it's perfectly equipped for interoperability or standalone tasks.
-     *
-     * this.protocol: the peer's instance of the protocol managing contract concerns outside of its execution.
-     * this.options: the option stack passed from Peer instance
-     *
-     * @param protocol
-     * @param options
-     */
-    constructor(protocol, options = {}) {
-        // calling super and passing all parameters is required.
-        super(protocol, options);
+class TeamPresenceContract extends Contract {
+  constructor(protocol, options = {}) {
+    super(protocol, options);
 
-        // simple function registration.
-        // since this function does not expect value payload, no need to sanitize.
-        // note that the function must match the type as set in Protocol.mapTxCommand()
-        this.addFunction('storeSomething');
+    this.addSchema('setProfile', {
+      value: {
+        $$strict: true,
+        $$type: 'object',
+        op: { type: 'string', min: 1, max: 64 },
+        handle: { type: 'string', min: 1, max: 64 },
+        timezone: { type: 'string', min: 1, max: 64 },
+        hours_start: { type: 'string', min: 1, max: 16 },
+        hours_end: { type: 'string', min: 1, max: 16 },
+        teams: { type: 'array', items: 'string', optional: true, max: 16 },
+      },
+    });
 
-        // now we register the function with a schema to prevent malicious inputs.
-        // the contract uses the schema generator "fastest-validator" and can be found on npmjs.org.
-        //
-        // Since this is the "value" as of Protocol.mapTxCommand(), we must take it full into account.
-        // $$strict : true tells the validator for the object structure to be precise after "value".
-        //
-        // note that the function must match the type as set in Protocol.mapTxCommand()
-        this.addSchema('submitSomething', {
-            value : {
-                $$strict : true,
-                $$type: "object",
-                op : { type : "string", min : 1, max: 128 },
-                some_key : { type : "string", min : 1, max: 128 }
-            }
+    this.addSchema('setStatus', {
+      value: {
+        $$strict: true,
+        $$type: 'object',
+        op: { type: 'string', min: 1, max: 64 },
+        state: { type: 'string', min: 2, max: 16 },
+        message: { type: 'string', optional: true, max: 256 },
+        until: { type: 'number', optional: true },
+        teams: { type: 'array', items: 'string', optional: true, max: 16 },
+      },
+    });
+
+    this.addSchema('setRotations', {
+      value: {
+        $$strict: true,
+        $$type: 'object',
+        op: { type: 'string', min: 1, max: 64 },
+        team: { type: 'string', min: 1, max: 64 },
+        rotations: {
+          type: 'array',
+          max: 64,
+          items: {
+            type: 'object',
+            props: {
+              from: { type: 'number' },
+              to: { type: 'number' },
+              primary: { type: 'string', min: 1, max: 128 },
+              secondary: { type: 'string', optional: true, max: 128 },
+            },
+          },
+        },
+      },
+    });
+
+    this.addSchema('readTeam', {
+      value: {
+        $$strict: true,
+        $$type: 'object',
+        op: { type: 'string', min: 1, max: 64 },
+        team: { type: 'string', min: 1, max: 64 },
+      },
+    });
+
+    this.addSchema('feature_entry', {
+      key: { type: 'string', min: 1, max: 256 },
+      value: { type: 'any' },
+    });
+
+    this.addFunction('readMyPresence');
+    this.addFunction('readTimer');
+    this.addFunction('readChatLast');
+
+    const _this = this;
+
+    this.addFeature('timer_feature', async function () {
+      if (false === _this.check.validateSchema('feature_entry', _this.op)) return;
+      if (_this.op.key === 'currentTime') {
+        const existing = await _this.get('currentTime');
+        if (existing === null) console.log('timer started at', _this.op.value);
+        await _this.put(_this.op.key, _this.op.value);
+      }
+    });
+
+    this.messageHandler(async function () {
+      if (_this.op?.type === 'msg' && typeof _this.op.msg === 'string') {
+        const currentTime = await _this.get('currentTime');
+        await _this.put('chat_last', {
+          msg: _this.op.msg,
+          address: _this.op.address ?? null,
+          at: currentTime ?? null,
         });
+      }
+      console.log('message triggered contract', _this.op);
+    });
+  }
 
-        // in preparation to add an external Feature (aka oracle), we add a loose schema to make sure
-        // the Feature key is given properly. it's not required, but showcases that even these can be
-        // sanitized.
-        this.addSchema('feature_entry', {
-            key : { type : "string", min : 1, max: 256 },
-            value : { type : "any" }
-        });
+  async setProfile() {
+    if (false === this.check.validateSchema('setProfile', this)) return;
 
-        // read helpers (no state writes)
-        this.addFunction('readSnapshot');
-        this.addFunction('readChatLast');
-        this.addFunction('readTimer');
-        this.addSchema('readKey', {
-            value : {
-                $$strict : true,
-                $$type: "object",
-                op : { type : "string", min : 1, max: 128 },
-                key : { type : "string", min : 1, max: 256 }
-            }
-        });
+    const allowedLen = 16;
+    let teams = Array.isArray(this.value.teams) ? this.value.teams.slice(0, allowedLen) : [];
+    teams = teams.map((t) => String(t).slice(0, 64));
 
-        // now we are registering the timer feature itself (see /features/time/ in package).
-        // note the naming convention for the feature name <feature-name>_feature.
-        // the feature name is given in app setup, when passing the feature classes.
-        const _this = this;
+    const currentTime = await this.get('currentTime');
 
-        // this feature registers incoming data from the Feature and if the right key is given,
-        // stores it into the smart contract storage.
-        // the stored data can then be further used in regular contract functions.
-        this.addFeature('timer_feature', async function(){
-            if(false === _this.check.validateSchema('feature_entry', _this.op)) return;
-            if(_this.op.key === 'currentTime') {
-                if(null === await _this.get('currentTime')) console.log('timer started at', _this.op.value);
-                await _this.put(_this.op.key, _this.op.value);
-            }
-        });
+    const profile = {
+      handle: String(this.value.handle),
+      timezone: String(this.value.timezone),
+      hours_start: String(this.value.hours_start),
+      hours_end: String(this.value.hours_end),
+      teams,
+      updatedAt: currentTime ?? null,
+    };
 
-        // last but not least, you may intercept messages from the built-in
-        // chat system, and perform actions similar to features to enrich your
-        // contract. check the _this.op value after you enabled the chat system
-        // and posted a few messages.
-        this.messageHandler(async function(){
-            if(_this.op?.type === 'msg' && typeof _this.op.msg === 'string'){
-                const currentTime = await _this.get('currentTime');
-                await _this.put('chat_last', {
-                    msg: _this.op.msg,
-                    address: _this.op.address ?? null,
-                    at: currentTime ?? null
-                });
-            }
-            console.log('message triggered contract', _this.op);
-        });
+    const cloned = this.protocol.safeClone(profile);
+    this.assert(cloned !== null);
+
+    const key = 'profile/' + this.address;
+    await this.put(key, cloned);
+  }
+
+  async setStatus() {
+    if (false === this.check.validateSchema('setStatus', this)) return;
+
+    const state = String(this.value.state || '').toUpperCase();
+    const allowedStates = ['ONLINE', 'AWAY', 'DND', 'OFFLINE', 'ON_CALL'];
+    this.assert(allowedStates.includes(state), new Error('Invalid state'));
+
+    let until = null;
+    if (typeof this.value.until === 'number' && Number.isFinite(this.value.until)) {
+      if (this.value.until > 0) {
+        until = this.value.until;
+      }
     }
 
-    /**
-     * A simple contract function without values (=no parameters).
-     *
-     * Contract functions must be registered through either "this.addFunction" or "this.addSchema"
-     * or it won't execute upon transactions. "this.addFunction" does not sanitize values, so it should be handled with
-     * care or be used when no payload is to be expected.
-     *
-     * Schema is recommended to sanitize incoming data from the transaction payload.
-     * The type of payload data depends on your protocol.
-     *
-     * This particular function does not expect any payload, so it's fine to be just registered using "this.addFunction".
-     *
-     * However, as you can see below, what it does is checking if an entry for key "something" exists already.
-     * With the very first tx executing it, it will return "null" (default value of this.get if no value found).
-     * From the 2nd tx onwards, it will print the previously stored value "there is something".
-     *
-     * It is recommended to check for null existence before using put to avoid duplicate content.
-     *
-     * As a rule of thumb, all "this.put()" should go at the end of function execution to avoid code security issues.
-     *
-     * Putting data is atomic, should a Peer with a contract interrupt, the put won't be executed.
-     */
-    async storeSomething(){
-        const something = await this.get('something');
+    const maxTeams = 16;
+    let teams = Array.isArray(this.value.teams) ? this.value.teams.slice(0, maxTeams) : [];
+    teams = teams.map((t) => String(t).slice(0, 64));
 
-        console.log('is there already something?', something);
+    const currentTime = await this.get('currentTime');
 
-        if(null === something) {
-            await this.put('something', 'there is something');
-        }
+    const status = {
+      state,
+      message: this.value.message ? String(this.value.message).slice(0, 256) : '',
+      until,
+      teams,
+      updatedAt: currentTime ?? null,
+    };
+
+    const cloned = this.protocol.safeClone(status);
+    this.assert(cloned !== null);
+
+    const key = 'status/' + this.address;
+    await this.put(key, cloned);
+  }
+
+  async setRotations() {
+    if (false === this.check.validateSchema('setRotations', this)) return;
+
+    const team = String(this.value.team || '').slice(0, 64);
+    this.assert(team.length > 0, new Error('Team required'));
+
+    const inputRotations = Array.isArray(this.value.rotations) ? this.value.rotations : [];
+
+    const normalized = [];
+    for (let i = 0; i < inputRotations.length; i += 1) {
+      const entry = inputRotations[i];
+      if (!entry) continue;
+      const from = Number(entry.from);
+      const to = Number(entry.to);
+      if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+      if (to <= from) continue;
+      const primary = String(entry.primary || '').slice(0, 128);
+      if (!primary) continue;
+      const secondary =
+        typeof entry.secondary === 'string' && entry.secondary.length > 0
+          ? String(entry.secondary).slice(0, 128)
+          : null;
+      normalized.push({
+        from,
+        to,
+        primary,
+        secondary,
+      });
+      if (normalized.length >= 64) break;
     }
 
-    /**
-     * Now we are using the schema-validated function defined in the constructor.
-     *
-     * The function also showcases some of the handy features like safe functions
-     * to prevent throws and safe bigint/decimal conversion.
-     */
-    async submitSomething(){
-        // the value of some_key shouldn't be empty, let's check that
-        if(this.value.some_key === ''){
-            return new Error('Cannot be empty');
-            // alternatively false for generic errors:
-            // return false;
-        }
+    const currentTime = await this.get('currentTime');
 
-        // of course the same works with assert (always use this.assert)
-        this.assert(this.value.some_key !== '', new Error('Cannot be empty'));
+    const payload = {
+      team,
+      rotations: normalized,
+      updatedAt: currentTime ?? null,
+    };
 
-        // btw, please use safeBigInt provided by the contract protocol's superclass
-        // to calculate big integers:
-        const bigint = this.protocol.safeBigInt("1000000000000000000");
+    const cloned = this.protocol.safeClone(payload);
+    this.assert(cloned !== null);
 
-        // making sure it didn't fail
-        this.assert(bigint !== null);
+    const key = 'rotation/' + team;
+    await this.put(key, cloned);
+  }
 
-        // you can also convert a bigint string into its decimal representation (as string)
-        const decimal = this.protocol.fromBigIntString(bigint.toString(), 18);
+  async readMyPresence() {
+    const profileKey = 'profile/' + this.address;
+    const statusKey = 'status/' + this.address;
 
-        // and back into a bigint string
-        const bigint_string = this.protocol.toBigIntString(decimal, 18);
+    const profile = await this.get(profileKey);
+    const status = await this.get(statusKey);
 
-        // let's clone the value
-        const cloned = this.protocol.safeClone(this.value);
+    console.log('presence for', this.address, {
+      profile: profile ?? null,
+      status: status ?? null,
+    });
+  }
 
-        // we want to pass the time from the timer feature.
-        // since mmodifications of this.value is not allowed, add this to the clone instead for storing:
-        cloned['timestamp'] = await this.get('currentTime');
-
-        // making sure it didn't fail (be aware of false-positives if null is passed to safeClone)
-        this.assert(cloned !== null);
-
-        // and now let's stringify the cloned value
-        const stringified = this.protocol.safeJsonStringify(cloned);
-
-        // and, you guessed it, best is to assert against null once more
-        this.assert(stringified !== null);
-
-        // and guess we are parsing it back
-        const parsed = this.protocol.safeJsonParse(stringified);
-
-        // parsing the json is a bit different: instead of null, we check against undefined:
-        this.assert(parsed !== undefined);
-
-        // finally we are storing what address submitted the tx and what the value was
-        await this.put('submitted_by/'+this.address, parsed.some_key);
-
-        // printing into the terminal works, too of course:
-        console.log('submitted by', this.address, parsed);
+  async readTeam() {
+    if (false === this.check.validateSchema('readTeam', this)) return;
+    const team = String(this.value.team || '').slice(0, 64);
+    if (!team) {
+      console.log('readTeam: missing team');
+      return;
     }
+    const key = 'rotation/' + team;
+    const rotation = await this.get(key);
+    console.log('rotation for team', team, rotation ?? null);
+  }
 
-    async readSnapshot(){
-        const something = await this.get('something');
-        const currentTime = await this.get('currentTime');
-        const msgl = await this.get('msgl');
-        const msg0 = await this.get('msg/0');
-        const msg1 = await this.get('msg/1');
-        console.log('snapshot', {
-            something,
-            currentTime,
-            msgl: msgl ?? 0,
-            msg0,
-            msg1
-        });
-    }
+  async readTimer() {
+    const currentTime = await this.get('currentTime');
+    console.log('currentTime:', currentTime);
+  }
 
-    async readKey(){
-        const key = this.value?.key;
-        const value = key ? await this.get(key) : null;
-        console.log(`readKey ${key}:`, value);
-    }
-
-    async readChatLast(){
-        const last = await this.get('chat_last');
-        console.log('chat_last:', last);
-    }
-
-    async readTimer(){
-        const currentTime = await this.get('currentTime');
-        console.log('currentTime:', currentTime);
-    }
+  async readChatLast() {
+    const last = await this.get('chat_last');
+    console.log('chat_last:', last ?? null);
+  }
 }
 
-export default SampleContract;
+export default TeamPresenceContract;
